@@ -18,7 +18,7 @@ local LocalPlayer = Players.LocalPlayer
 -- 設定
 -- =========================================================
 local Config = {
-    OffsetY              = 4,     -- パーツ中心から上へのオフセット（studs）
+    OffsetY              = 3.8,     -- パーツ中心から上へのオフセット（studs）
     PositionResponsive   = 40,    -- 位置追従の滑らかさ
     RotationResponsive   = 60,    -- 水平回転の追従速度（高いほどキビキビ）
 }
