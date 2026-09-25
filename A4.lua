@@ -1597,3 +1597,1456 @@ DefenseTab:AddToggle({
         end
     end
 })
+-- ==========================================
+-- 掴みタブ
+-- ==========================================
+local GrabTab = Window:MakeTab({
+    Name = "掴み",
+    Icon = "rbxassetid://4483362458",
+})
+
+GrabTab:AddSection({ Name = "掴み設定" })
+
+GrabTab:AddSlider({
+    Name = "掴みパワー",
+    Min = 1,
+    Max = 20000,
+    Default = 750,
+    Increment = 1,
+    ValueName = "パワー",
+    Callback = function(v)
+        NabeHub.State.GrabPower = v
+    end
+})
+
+-- 強度（右クリックで射出）
+local strengthConn = nil
+GrabTab:AddToggle({
+    Name = "掴み強度（右クリックで射出）",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.GrabStrength = v
+        if strengthConn then strengthConn:Disconnect() strengthConn = nil end
+        if not v then return end
+
+        strengthConn = Workspace.ChildAdded:Connect(function(model)
+            if model.Name ~= "GrabParts" then return end
+            local grabPart = model:FindFirstChild("GrabPart")
+            local weld = grabPart and grabPart:FindFirstChild("WeldConstraint")
+            local target = weld and weld.Part1
+            if not target then return end
+
+            local bv = Instance.new("BodyVelocity", target)
+            bv.MaxForce = Vector3.zero
+            bv.Velocity = Vector3.zero
+
+            model:GetPropertyChangedSignal("Parent"):Connect(function()
+                if model.Parent then return end
+                if UserInputService:GetLastInputType() == Enum.UserInputType.MouseButton2 then
+                    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                    bv.Velocity = Camera.CFrame.LookVector * NabeHub.State.GrabPower
+                    game:GetService("Debris"):AddItem(bv, 1)
+                else
+                    bv:Destroy()
+                end
+            end)
+        end)
+    end
+})
+
+-- Massless Grab
+GrabTab:AddToggle({
+    Name = "マスレス掴み",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.MasslessGrab = v
+        if v then
+            notif("なべHub", "マスレス掴み ON")
+        else
+            notif("なべHub", "マスレス掴み OFF")
+        end
+    end
+})
+
+track(RunService.Heartbeat:Connect(function()
+    if not NabeHub.State.MasslessGrab then return end
+    local gp = Workspace:FindFirstChild("GrabParts")
+    if not gp then return end
+    local dp = gp:FindFirstChild("DragPart")
+    if not dp then return end
+    local ap = dp:FindFirstChild("AlignPosition")
+    local ao = dp:FindFirstChild("AlignOrientation")
+    if ap then
+        ap.Responsiveness = 200
+        ap.MaxForce = math.huge
+        ap.MaxVelocity = math.huge
+    end
+    if ao then
+        ao.Responsiveness = 200
+        ao.MaxTorque = math.huge
+    end
+end))
+
+-- Further Reach（距離拡張）
+GrabTab:AddToggle({
+    Name = "リーチ拡張",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.FurtherReach = v
+        if v then
+            pcall(function()
+                local dataEvents = RS:FindFirstChild("DataEvents")
+                if dataEvents then
+                    dataEvents.UpdateLineColorsEvent:FireServer(ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 195)),
+                    }))
+                end
+            end)
+            pcall(function()
+                local gp = RS:FindFirstChild("GamepassEvents")
+                if gp then
+                    local notifier = gp:FindFirstChild("FurtherReachBoughtNotifier")
+                    if notifier then
+                        for _, conn in pairs(getconnections(notifier.OnClientEvent)) do
+                            for i in debug.getupvalues(conn.Function) do
+                                debug.setupvalue(conn.Function, i, 30)
+                            end
+                        end
+                    end
+                end
+            end)
+            notif("なべHub", "リーチ拡張 ON")
+        else
+            notif("なべHub", "リーチ拡張 OFF")
+        end
+    end
+})
+
+-- ==========================================
+-- トリガーボット
+-- ==========================================
+GrabTab:AddSection({ Name = "自動攻撃" })
+
+local triggerEnabled = false
+local triggerDist = 25
+local triggerDelay = 0.05
+
+GrabTab:AddToggle({
+    Name = "トリガーボット",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.TriggerBot = v
+        if not v then return end
+        task.spawn(function()
+            while NabeHub.State.TriggerBot do
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local closest = nil
+                    local closestDist = math.huge
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer then
+                            local tRoot = getHRP(plr)
+                            if tRoot then
+                                local d = (tRoot.Position - hrp.Position).Magnitude
+                                if d <= triggerDist and d < closestDist then
+                                    closest = plr
+                                    closestDist = d
+                                end
+                            end
+                        end
+                    end
+                    if closest then
+                        local tRoot = getHRP(closest)
+                        if tRoot then
+                            pcall(function()
+                                local mouse = LocalPlayer:GetMouse()
+                                if mouse then
+                                    mouse.TargetFilter = LocalPlayer.Character
+                                end
+                            end)
+                            pcall(function()
+                                if mouse1press then
+                                    mouse1press()
+                                    task.wait(0.05)
+                                    mouse1release()
+                                end
+                            end)
+                        end
+                    end
+                end
+                task.wait(triggerDelay)
+            end
+        end)
+    end
+})
+
+GrabTab:AddSlider({
+    Name = "トリガー距離",
+    Min = 5,
+    Max = 50,
+    Default = 25,
+    Increment = 1,
+    ValueName = "studs",
+    Callback = function(v) triggerDist = v end
+})
+
+GrabTab:AddSlider({
+    Name = "トリガー間隔",
+    Min = 0.01,
+    Max = 0.5,
+    Default = 0.05,
+    Increment = 0.01,
+    ValueName = "秒",
+    Callback = function(v) triggerDelay = v end
+})
+
+-- ==========================================
+-- サイレントエイム
+-- ==========================================
+GrabTab:AddSection({ Name = "サイレントエイム" })
+
+local silentEnabled = false
+local silentMaxStuds = 40
+local silentHitbox = "Head"
+
+GrabTab:AddToggle({
+    Name = "サイレントエイム",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.SilentAim = v
+        silentEnabled = v
+        notif("なべHub", "サイレントエイム " .. (v and "ON" or "OFF"))
+    end
+})
+
+GrabTab:AddSlider({
+    Name = "最大補正距離",
+    Min = 0,
+    Max = 100,
+    Default = 40,
+    Increment = 1,
+    ValueName = "studs",
+    Callback = function(v) silentMaxStuds = v end
+})
+
+GrabTab:AddDropdown({
+    Name = "ヒットボックス",
+    Default = "Head",
+    Options = {"Head", "Torso", "HumanoidRootPart", "UpperTorso", "LowerTorso"},
+    Callback = function(v) silentHitbox = v end
+})
+
+-- サイレントエイム本体（hookmetamethod）
+local function getSilentTarget()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closest, closestDist = nil, silentMaxStuds
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local tPart = plr.Character:FindFirstChild(silentHitbox)
+            local tRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            if tPart and tRoot then
+                local d = (tRoot.Position - hrp.Position).Magnitude
+                if d <= closestDist then
+                    closest = tPart
+                    closestDist = d
+                end
+            end
+        end
+    end
+    return closest
+end
+
+if hookmetamethod then
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if silentEnabled and method == "Raycast" and args[1] == Workspace then
+            local target = getSilentTarget()
+            if target then
+                local origin = args[2]
+                args[3] = (target.Position - origin).Unit * silentMaxStuds
+                return oldNamecall(unpack(args))
+            end
+        end
+        return oldNamecall(...)
+    end)
+end
+
+-- ==========================================
+-- エイムボット
+-- ==========================================
+GrabTab:AddSection({ Name = "エイムボット" })
+
+local aimbotEnabled = false
+local aimbotDist = 30
+local aimbotSmooth = 0.5
+local aimbotFOV = 100
+local aimbotPart = "Head"
+local aimbotKey = Enum.KeyCode.Q
+local aimbotHolding = false
+
+GrabTab:AddToggle({
+    Name = "エイムボット",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.Aimbot = v
+        aimbotEnabled = v
+        if v then
+            task.spawn(function()
+                while aimbotEnabled do
+                    if aimbotHolding then
+                        local char = LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                            local closest, closestDist = nil, math.huge
+                            for _, plr in ipairs(Players:GetPlayers()) do
+                                if plr ~= LocalPlayer and plr.Character then
+                                    local tPart = plr.Character:FindFirstChild(aimbotPart)
+                                    local tHum = plr.Character:FindFirstChildOfClass("Humanoid")
+                                    if tPart and tHum and tHum.Health > 0 then
+                                        local d = (tPart.Position - hrp.Position).Magnitude
+                                        if d <= aimbotDist then
+                                            local screenPos, onScreen = Camera:WorldToViewportPoint(tPart.Position)
+                                            if onScreen then
+                                                local sd = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                                                if sd <= aimbotFOV and sd < closestDist then
+                                                    closest = tPart
+                                                    closestDist = sd
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if closest then
+                                local lookAt = CFrame.lookAt(Camera.CFrame.Position, closest.Position)
+                                Camera.CFrame = Camera.CFrame:Lerp(lookAt, aimbotSmooth)
+                            end
+                        end
+                    end
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+        end
+    end
+})
+
+GrabTab:AddSlider({
+    Name = "エイム距離",
+    Min = 5,
+    Max = 150,
+    Default = 30,
+    Increment = 5,
+    ValueName = "studs",
+    Callback = function(v) aimbotDist = v end
+})
+
+GrabTab:AddSlider({
+    Name = "エイム滑らかさ",
+    Min = 0.05,
+    Max = 1,
+    Default = 0.5,
+    Increment = 0.05,
+    ValueName = "x",
+    Callback = function(v) aimbotSmooth = v end
+})
+
+GrabTab:AddSlider({
+    Name = "エイムFOV",
+    Min = 10,
+    Max = 360,
+    Default = 100,
+    Increment = 5,
+    ValueName = "px",
+    Callback = function(v) aimbotFOV = v end
+})
+
+GrabTab:AddDropdown({
+    Name = "エイム部位",
+    Default = "Head",
+    Options = {"Head", "HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso"},
+    Callback = function(v) aimbotPart = v end
+})
+
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == aimbotKey then
+        aimbotHolding = true
+    end
+end))
+
+track(UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == aimbotKey then
+        aimbotHolding = false
+    end
+end))
+
+-- ==========================================
+-- 移動タブ
+-- ==========================================
+local MoveTab = Window:MakeTab({
+    Name = "移動",
+    Icon = "rbxassetid://4483362458",
+})
+
+MoveTab:AddSection({ Name = "基本" })
+
+-- スピード
+MoveTab:AddToggle({
+    Name = "スピード変更",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.SpeedEnabled = v
+    end
+})
+
+MoveTab:AddSlider({
+    Name = "スピード値",
+    Min = 16,
+    Max = 500,
+    Default = 16,
+    Increment = 1,
+    ValueName = "studs/s",
+    Callback = function(v) NabeHub.State.Speed = v end
+})
+
+track(RunService.Heartbeat:Connect(function()
+    if not NabeHub.State.SpeedEnabled then return end
+    local hum = getHum()
+    if hum then hum.WalkSpeed = NabeHub.State.Speed end
+end))
+
+-- ジャンプ
+MoveTab:AddToggle({
+    Name = "ジャンプ力変更",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.JumpEnabled = v
+    end
+})
+
+MoveTab:AddSlider({
+    Name = "ジャンプ値",
+    Min = 50,
+    Max = 500,
+    Default = 50,
+    Increment = 1,
+    ValueName = "",
+    Callback = function(v) NabeHub.State.Jump = v end
+})
+
+track(RunService.Heartbeat:Connect(function()
+    if not NabeHub.State.JumpEnabled then return end
+    local hum = getHum()
+    if hum then hum.JumpPower = NabeHub.State.Jump end
+end))
+
+-- 無限ジャンプ
+MoveTab:AddToggle({
+    Name = "無限ジャンプ",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.InfJump = v
+    end
+})
+
+track(UserInputService.JumpRequest:Connect(function()
+    if not NabeHub.State.InfJump then return end
+    local hum = getHum()
+    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end))
+
+-- ノークリップ
+local noclipConn = nil
+MoveTab:AddToggle({
+    Name = "ノークリップ",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.Noclip = v
+        if noclipConn then noclipConn:Disconnect() noclipConn = nil end
+        if v then
+            noclipConn = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, p in ipairs(char:GetDescendants()) do
+                        if p:IsA("BasePart") then p.CanCollide = false end
+                    end
+                end
+            end)
+            notif("なべHub", "ノークリップ ON")
+        else
+            notif("なべHub", "ノークリップ OFF")
+        end
+    end
+})
+
+-- ==========================================
+-- フライ
+-- ==========================================
+MoveTab:AddSection({ Name = "フライ" })
+
+local flyBV = Instance.new("BodyVelocity")
+flyBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+flyBV.Velocity = Vector3.zero
+local flyBG = Instance.new("BodyGyro")
+flyBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+flyBG.P = 10000
+
+local flyConn = nil
+MoveTab:AddToggle({
+    Name = "フライ",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.Fly = v
+        if flyConn then flyConn:Disconnect() flyConn = nil end
+        if not v then
+            flyBV.Parent = nil
+            flyBG.Parent = nil
+            local hum = getHum()
+            if hum then hum.PlatformStand = false end
+            return
+        end
+        notif("なべHub", "フライ ON")
+        flyConn = RunService.Heartbeat:Connect(function()
+            if not NabeHub.State.Fly then return end
+            local hrp = getHRP()
+            local hum = getHum()
+            if not hrp or not hum then return end
+            flyBV.Parent = hrp
+            flyBG.Parent = hrp
+            flyBG.CFrame = Camera.CFrame
+
+            local dir = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+
+            flyBV.Velocity = dir * NabeHub.State.FlySpeed
+            hum.PlatformStand = true
+        end)
+    end
+})
+
+MoveTab:AddSlider({
+    Name = "フライ速度",
+    Min = 10,
+    Max = 500,
+    Default = 50,
+    Increment = 5,
+    ValueName = "studs/s",
+    Callback = function(v) NabeHub.State.FlySpeed = v end
+})
+
+-- ブロブフライ
+local blobFlyBV, blobFlyBG
+MoveTab:AddToggle({
+    Name = "ブロブフライ（R）",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.BlobFly = v
+        if not v then
+            if blobFlyBV then blobFlyBV:Destroy() blobFlyBV = nil end
+            if blobFlyBG then blobFlyBG:Destroy() blobFlyBG = nil end
+        end
+    end
+})
+
+track(RunService.Heartbeat:Connect(function()
+    if not NabeHub.State.BlobFly then
+        if blobFlyBV then blobFlyBV:Destroy() blobFlyBV = nil end
+        if blobFlyBG then blobFlyBG:Destroy() blobFlyBG = nil end
+        return
+    end
+    local blob = getSeatedBlobman() or getMyBlobman()
+    if not blob then return end
+    local root = blob:FindFirstChild("HumanoidRootPart") or blob.PrimaryPart
+    if not root then return end
+
+    if not blobFlyBV or blobFlyBV.Parent ~= root then
+        if blobFlyBV then blobFlyBV:Destroy() end
+        blobFlyBV = Instance.new("BodyVelocity")
+        blobFlyBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        blobFlyBV.P = 10000
+        blobFlyBV.Parent = root
+    end
+    if not blobFlyBG or blobFlyBG.Parent ~= root then
+        if blobFlyBG then blobFlyBG:Destroy() end
+        blobFlyBG = Instance.new("BodyGyro")
+        blobFlyBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        blobFlyBG.P = 20000
+        blobFlyBG.D = 100
+        blobFlyBG.Parent = root
+    end
+
+    local dir = Vector3.zero
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+
+    blobFlyBV.Velocity = dir * 60
+    blobFlyBG.CFrame = Camera.CFrame
+end))
+
+-- ==========================================
+-- テレポート
+-- ==========================================
+MoveTab:AddSection({ Name = "テレポート" })
+
+local teleportSpots = {
+    ["スポーン"] = Vector3.new(0, -7, 0),
+    ["紫の家（魔女）"] = Vector3.new(255, -8, 449),
+    ["緑の家（木）"] = Vector3.new(-534, -8, 93),
+    ["青の家（アメリカ）"] = Vector3.new(512, 82, -343),
+    ["オレンジの家（中華）"] = Vector3.new(548, 122, -73),
+    ["赤の家（普通）"] = Vector3.new(-493, -8, -165),
+    ["毒井戸"] = Vector3.new(106, -25, 279),
+    ["雪山"] = Vector3.new(-414, 231, 480),
+    ["秘密大洞窟"] = Vector3.new(17, -7, 539),
+    ["秘密列車洞窟"] = Vector3.new(500, 62, -307),
+    ["Slot1"] = Vector3.new(54, -7, -115),
+    ["Slot2"] = Vector3.new(170, -8, 527),
+    ["Slot3"] = Vector3.new(-213, 83, 421),
+    ["Slot4"] = Vector3.new(-540, -6, -40),
+}
+
+MoveTab:AddDropdown({
+    Name = "テレポート先",
+    Default = "スポーン",
+    Options = (function()
+        local list = {}
+        for name in pairs(teleportSpots) do table.insert(list, name) end
+        table.sort(list)
+        return list
+    end)(),
+    Callback = function(v)
+        NabeHub.TeleportSpot = v
+    end
+})
+
+MoveTab:AddButton({
+    Name = "テレポート実行",
+    Callback = function()
+        local spot = NabeHub.TeleportSpot or "スポーン"
+        local pos = teleportSpots[spot]
+        local hrp = getHRP()
+        if pos and hrp then
+            hrp.CFrame = CFrame.new(pos)
+            notif("なべHub", spot .. " へテレポート")
+        end
+    end
+})
+
+-- プレイヤーTP
+MoveTab:AddDropdown({
+    Name = "プレイヤーTP対象",
+    Default = "",
+    Options = getPlayerList(),
+    Callback = function(v)
+        NabeHub.TPPlayer = getPlayerFromSelection(v)
+    end
+})
+
+MoveTab:AddButton({
+    Name = "プレイヤーリスト更新",
+    Callback = function()
+        -- targetDropdown と同じリスト
+    end
+})
+
+MoveTab:AddButton({
+    Name = "プレイヤーの所へ",
+    Callback = function()
+        local target = NabeHub.TPPlayer
+        local tRoot = target and getHRP(target)
+        local hrp = getHRP()
+        if tRoot and hrp then
+            hrp.CFrame = tRoot.CFrame * CFrame.new(0, 0, 3)
+            notif("なべHub", target.Name .. " へTP")
+        end
+    end
+})
+
+-- TPツール（T）
+MoveTab:AddToggle({
+    Name = "TPツール（T）",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.TPTool = v
+    end
+})
+
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.T and NabeHub.State.TPTool then
+        local mouse = LocalPlayer:GetMouse()
+        local hrp = getHRP()
+        if mouse and mouse.Hit and hrp then
+            hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0))
+        end
+    end
+end))
+
+-- 水上歩行
+MoveTab:AddToggle({
+    Name = "水上歩行",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.WaterWalk = v
+        local ocean = Workspace:FindFirstChild("Map")
+            and Workspace.Map:FindFirstChild("AlwaysHereTweenedObjects")
+            and Workspace.Map.AlwaysHereTweenedObjects:FindFirstChild("Ocean")
+        if ocean then
+            local model = ocean:FindFirstChild("Object")
+                and ocean.Object:FindFirstChild("ObjectModel")
+            if model then
+                for _, p in ipairs(model:GetChildren()) do
+                    if p:IsA("BasePart") then
+                        p.CanCollide = v
+                    end
+                end
+            end
+        end
+        notif("なべHub", "水上歩行 " .. (v and "ON" or "OFF"))
+    end
+})
+-- ==========================================
+-- 視覚タブ
+-- ==========================================
+local VisualTab = Window:MakeTab({
+    Name = "視覚",
+    Icon = "rbxassetid://4483362458",
+})
+
+VisualTab:AddSection({ Name = "ESP" })
+
+-- レインボーESP
+local rainbowESP = {
+    Enabled = false,
+    Boxes = {},
+    Hue = 0,
+    Conn = nil,
+}
+local espTargets = {"partesp", "playercharacterlocationdetector"}
+
+local function isESPTarget(obj)
+    if not obj:IsA("BasePart") then return false end
+    for _, n in ipairs(espTargets) do
+        if string.lower(obj.Name) == n then return true end
+    end
+    return false
+end
+
+local function clearRainbowESP()
+    for _, box in pairs(rainbowESP.Boxes) do
+        if box then pcall(function() box:Destroy() end) end
+    end
+    rainbowESP.Boxes = {}
+end
+
+VisualTab:AddToggle({
+    Name = "レインボーESP",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.RainbowESP = v
+        rainbowESP.Enabled = v
+        if not v then
+            clearRainbowESP()
+            if rainbowESP.Conn then rainbowESP.Conn:Disconnect() rainbowESP.Conn = nil end
+            return
+        end
+        -- 既存スキャン
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if isESPTarget(obj) and not rainbowESP.Boxes[obj] then
+                local box = Instance.new("BoxHandleAdornment")
+                box.Adornee = obj
+                box.AlwaysOnTop = true
+                box.ZIndex = 5
+                box.Color3 = Color3.fromHSV(rainbowESP.Hue, 1, 1)
+                box.Transparency = 0.3
+                box.Size = obj.Size
+                box.Parent = game:GetService("CoreGui")
+                rainbowESP.Boxes[obj] = box
+            end
+        end
+        -- 新規監視
+        rainbowESP.Conn = Workspace.DescendantAdded:Connect(function(obj)
+            if rainbowESP.Enabled and isESPTarget(obj) and not rainbowESP.Boxes[obj] then
+                local box = Instance.new("BoxHandleAdornment")
+                box.Adornee = obj
+                box.AlwaysOnTop = true
+                box.ZIndex = 5
+                box.Color3 = Color3.fromHSV(rainbowESP.Hue, 1, 1)
+                box.Transparency = 0.3
+                box.Size = obj.Size
+                box.Parent = game:GetService("CoreGui")
+                rainbowESP.Boxes[obj] = box
+            end
+        end)
+        -- 色更新ループ
+        task.spawn(function()
+            while rainbowESP.Enabled do
+                rainbowESP.Hue = (rainbowESP.Hue + 0.005) % 1
+                local c = Color3.fromHSV(rainbowESP.Hue, 1, 1)
+                for _, box in pairs(rainbowESP.Boxes) do
+                    if box and box.Parent then
+                        pcall(function() box.Color3 = c end)
+                    end
+                end
+                task.wait(0.05)
+            end
+        end)
+        notif("なべHub", "レインボーESP ON")
+    end
+})
+
+-- ニックネームESP
+local nameESPTags = {}
+VisualTab:AddToggle({
+    Name = "ニックネームESP",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.NameESP = v
+        if not v then
+            for _, g in pairs(nameESPTags) do
+                if g and g.Parent then pcall(function() g:Destroy() end) end
+            end
+            nameESPTags = {}
+            return
+        end
+        local function addTag(plr)
+            if plr == LocalPlayer then return end
+            local hrp = getHRP(plr)
+            if not hrp then return end
+            if hrp:FindFirstChild("NabeNameESP") then return end
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "NabeNameESP"
+            bb.Adornee = hrp
+            bb.Size = UDim2.new(0, 150, 0, 40)
+            bb.StudsOffset = Vector3.new(0, 3.5, 0)
+            bb.AlwaysOnTop = true
+            bb.Parent = hrp
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.BackgroundTransparency = 1
+            label.Text = plr.DisplayName
+            label.TextColor3 = Color3.new(1, 1, 1)
+            label.TextStrokeTransparency = 0
+            label.TextScaled = true
+            label.Font = Enum.Font.GothamBold
+            label.Parent = bb
+            table.insert(nameESPTags, bb)
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do addTag(plr) end
+        track(Players.PlayerAdded:Connect(function(plr)
+            plr.CharacterAdded:Connect(function() if NabeHub.State.NameESP then task.wait(0.5) addTag(plr) end end)
+        end))
+        notif("なべHub", "ニックネームESP ON")
+    end
+})
+
+-- ==========================================
+-- 視覚効果
+-- ==========================================
+VisualTab:AddSection({ Name = "視覚効果" })
+
+VisualTab:AddToggle({
+    Name = "三人称視点",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.ThirdPerson = v
+        if v then
+            LocalPlayer.CameraMode = Enum.CameraMode.Classic
+            LocalPlayer.CameraMaxZoomDistance = 1000
+            LocalPlayer.CameraMinZoomDistance = 0.5
+        else
+            LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+            LocalPlayer.CameraMaxZoomDistance = 0.5
+            LocalPlayer.CameraMinZoomDistance = 0.5
+        end
+    end
+})
+
+-- キャラ回転
+VisualTab:AddToggle({
+    Name = "キャラ回転",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.CharSpin = v
+        if v then
+            task.spawn(function()
+                while NabeHub.State.CharSpin do
+                    local hrp = getHRP()
+                    if hrp then
+                        hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(5), 0)
+                    end
+                    RunService.Heartbeat:Wait()
+                end
+            end)
+        end
+    end
+})
+
+VisualTab:AddSlider({
+    Name = "FOV",
+    Min = 40,
+    Max = 120,
+    Default = 70,
+    Increment = 1,
+    ValueName = "°",
+    Callback = function(v)
+        NabeHub.State.FOV = v
+        Camera.FieldOfView = v
+    end
+})
+
+-- ==========================================
+-- カスタムエフェクト
+-- ==========================================
+VisualTab:AddSection({ Name = "カスタムエフェクト" })
+
+local customEffect = {
+    Active = "None",
+    Enabled = false,
+    Parts = {},
+    Conns = {},
+}
+
+local function clearCustomEffect()
+    for _, c in ipairs(customEffect.Conns) do
+        pcall(function() c:Disconnect() end)
+    end
+    customEffect.Conns = {}
+    for _, p in ipairs(customEffect.Parts) do
+        pcall(function() p:Destroy() end)
+    end
+    customEffect.Parts = {}
+end
+
+local customEffects = {}
+
+-- Orbit Rings
+customEffects["Orbit Rings"] = function()
+    local hrp = getHRP()
+    if not hrp then return end
+    local rings = {}
+    for i = 1, 3 do
+        local ring = Instance.new("Part")
+        ring.Size = Vector3.new(7, 0.18, 0.18)
+        ring.Material = Enum.Material.Neon
+        ring.CanCollide = false
+        ring.CanTouch = false
+        ring.CanQuery = false
+        ring.Massless = true
+        ring.Anchored = true
+        ring.Parent = LocalPlayer.Character
+        table.insert(customEffect.Parts, ring)
+        table.insert(rings, { part = ring, offset = (i - 1) * (math.pi * 2 / 3), tilt = (i - 1) * (math.pi / 3) })
+    end
+    local t = 0
+    local conn = RunService.Heartbeat:Connect(function(dt)
+        t = t + dt * 2.2
+        local h = getHRP()
+        if not h then return end
+        for _, d in ipairs(rings) do
+            local ang = t + d.offset
+            d.part.Color = Color3.fromHSV(((t * 0.08 + d.offset) % (math.pi * 2)) / (math.pi * 2), 1, 1)
+            d.part.CFrame = h.CFrame * CFrame.Angles(d.tilt, 0, 0) * CFrame.Angles(0, ang, 0) * CFrame.new(3.6, 0, 0) * CFrame.Angles(0, math.pi / 2, 0)
+        end
+    end)
+    table.insert(customEffect.Conns, conn)
+end
+
+-- Fire Aura
+customEffects["Fire Aura"] = function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, name in ipairs({"HumanoidRootPart", "Head", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}) do
+        local p = char:FindFirstChild(name)
+        if p then
+            local fire = Instance.new("Fire")
+            fire.Size = 4
+            fire.Heat = 6
+            fire.Color = Color3.fromRGB(255, 80, 0)
+            fire.SecondaryColor = Color3.fromRGB(255, 200, 0)
+            fire.Parent = p
+            table.insert(customEffect.Parts, fire)
+        end
+    end
+end
+
+-- Lightning Body
+customEffects["Lightning Body"] = function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, name in ipairs({"HumanoidRootPart", "Head", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}) do
+        local p = char:FindFirstChild(name)
+        if p and p:IsA("BasePart") then
+            local a0 = Instance.new("Attachment")
+            a0.Position = Vector3.new(0, p.Size.Y / 2, 0)
+            a0.Parent = p
+            local a1 = Instance.new("Attachment")
+            a1.Position = Vector3.new(0, -p.Size.Y / 2, 0)
+            a1.Parent = p
+            local bolt = Instance.new("Beam")
+            bolt.Attachment0 = a0
+            bolt.Attachment1 = a1
+            bolt.FaceCamera = true
+            bolt.Width0 = 0.06
+            bolt.Width1 = 0.06
+            bolt.Segments = 12
+            bolt.LightEmission = 1
+            bolt.LightInfluence = 0
+            bolt.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 60, 255)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 160, 255)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 60, 255)),
+            })
+            bolt.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.2),
+                NumberSequenceKeypoint.new(0.5, 0),
+                NumberSequenceKeypoint.new(1, 0.2),
+            })
+            bolt.Parent = p
+            table.insert(customEffect.Parts, a0)
+            table.insert(customEffect.Parts, a1)
+            table.insert(customEffect.Parts, bolt)
+            task.spawn(function()
+                while bolt.Parent do
+                    bolt.Segments = math.random(6, 18)
+                    bolt.Width0 = math.random(3, 9) / 100
+                    bolt.Width1 = bolt.Width0
+                    task.wait(math.random(2, 8) / 100)
+                end
+            end)
+        end
+    end
+end
+
+-- ブラックホール召喚（ボタン用）
+local function spawnBlackHole(pos)
+    local core = Instance.new("Part")
+    core.Shape = Enum.PartType.Ball
+    core.Size = Vector3.new(3, 3, 3)
+    core.Position = pos
+    core.Anchored = true
+    core.CanCollide = false
+    core.Material = Enum.Material.Neon
+    core.Color = Color3.new(0, 0, 0)
+    core.Parent = Workspace
+
+    local ring = Instance.new("Part")
+    ring.Shape = Enum.PartType.Ball
+    ring.Size = Vector3.new(6, 6, 6)
+    ring.Position = pos
+    ring.Anchored = true
+    ring.CanCollide = false
+    ring.Material = Enum.Material.Neon
+    ring.Color = Color3.fromRGB(150, 0, 255)
+    ring.Transparency = 0.6
+    ring.Parent = Workspace
+
+    local pe = Instance.new("ParticleEmitter")
+    pe.Parent = core
+    pe.Texture = "rbxassetid://243098098"
+    pe.Rate = 100
+    pe.Lifetime = NumberRange.new(0.5, 1)
+    pe.Speed = NumberRange.new(5, 15)
+    pe.SpreadAngle = Vector2.new(360, 360)
+    pe.Color = ColorSequence.new(Color3.fromRGB(150, 0, 255), Color3.fromRGB(0, 0, 0))
+    pe.Size = NumberSequence.new(0.5, 0.1)
+
+    local sound = Instance.new("Sound")
+    sound.Parent = core
+    sound.SoundId = "rbxassetid://9116149587"
+    sound.Volume = 2
+    sound:Play()
+
+    task.spawn(function()
+        local tween = TweenService:Create(core, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = Vector3.new(8, 8, 8)
+        })
+        tween:Play()
+        local rot = 0
+        local conn
+        conn = RunService.Heartbeat:Connect(function(dt)
+            if not core.Parent then conn:Disconnect() return end
+            rot = rot + dt * 360
+            core.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.rad(rot), 0)
+            ring.CFrame = CFrame.new(pos) * CFrame.Angles(math.rad(rot), 0, 0)
+        end)
+        task.wait(2)
+        conn:Disconnect()
+        core:Destroy()
+        ring:Destroy()
+    end)
+end
+
+VisualTab:AddDropdown({
+    Name = "エフェクト選択",
+    Default = "None",
+    Options = {"None", "Orbit Rings", "Fire Aura", "Lightning Body"},
+    Callback = function(v)
+        customEffect.Active = v
+        if customEffect.Enabled then
+            clearCustomEffect()
+            if customEffects[v] then customEffects[v]() end
+        end
+    end
+})
+
+VisualTab:AddToggle({
+    Name = "エフェクト有効",
+    Default = false,
+    Callback = function(v)
+        customEffect.Enabled = v
+        if v then
+            if customEffects[customEffect.Active] then customEffects[customEffect.Active]() end
+            notif("なべHub", customEffect.Active .. " ON")
+        else
+            clearCustomEffect()
+            notif("なべHub", "エフェクト OFF")
+        end
+    end
+})
+
+VisualTab:AddButton({
+    Name = "ブラックホール召喚",
+    Callback = function()
+        local hrp = getHRP()
+        if hrp then
+            spawnBlackHole(hrp.Position + Vector3.new(0, 8, 0))
+            notif("なべHub", "ブラックホール召喚")
+        end
+    end
+})
+
+-- ==========================================
+-- 便利タブ
+-- ==========================================
+local UtilityTab = Window:MakeTab({
+    Name = "便利",
+    Icon = "rbxassetid://4483362458",
+})
+
+UtilityTab:AddSection({ Name = "おもちゃ" })
+
+-- おもちゃ一覧
+local toyList = {
+    "FoodHamburger", "FoodCoconut", "FoodBanana", "FoodFrenchFries", "FoodMeatStick",
+    "FoodDonut", "FoodCakePink", "FoodPizzaCheese", "FoodHotdog", "FoodMushroomPoison",
+    "FoodBread", "FoodDippyEgg", "FoodMayonnaise",
+    "InstrumentGuitarBanjo", "InstrumentGuitarViolin", "InstrumentGuitarUkulele",
+    "InstrumentWoodwindSaxophone", "InstrumentWoodwindOcarina",
+    "InstrumentBrassTrumpet", "InstrumentBrassVuvuzela", "InstrumentDrumBongos",
+    "InstrumentDrumSnare", "InstrumentPianoMelodica", "InstrumentVoiceMicrophone",
+    "CupMugWhite", "CupMugBrown", "PoopPile", "PoopPileSparkle",
+    "BombMissile", "BombDarkMatter", "BombBalloon", "FireworkMissile",
+    "PresentBig", "PresentSmall", "NinjaShuriken", "NinjaKunai",
+    "PalletLightBrown", "SprayCanWD", "FireExtinguisher", "Campfire",
+    "BallSnowball", "JapaneseLantern", "SpookyCandle1", "DiceSmall",
+    "TractorGreen", "FireworkSparkler", "OvenDarkGray", "OvenMicrowaveWhite",
+    "PlantPottedCactus", "CreatureBlobman",
+}
+
+UtilityTab:AddDropdown({
+    Name = "おもちゃ選択",
+    Default = "FoodHamburger",
+    Options = toyList,
+    Callback = function(v)
+        NabeHub.SelectedToy = v
+    end
+})
+
+UtilityTab:AddButton({
+    Name = "おもちゃスポーン",
+    Callback = function()
+        local toy = NabeHub.SelectedToy or "FoodHamburger"
+        local hrp = getHRP()
+        if hrp then
+            spawnToy(toy, hrp.CFrame * CFrame.new(0, 5, 5))
+            notif("なべHub", toy .. " スポーン")
+        end
+    end
+})
+
+-- バリア破壊
+UtilityTab:AddSection({ Name = "バリア破壊" })
+
+UtilityTab:AddButton({
+    Name = "バリア破壊実行",
+    Callback = function()
+        task.spawn(function()
+            local hrp = getHRP()
+            local hum = getHum()
+            if not hrp or not hum then return end
+
+            -- 家の中なら拒否
+            if LocalPlayer.InPlot and LocalPlayer.InPlot.Value then
+                notif("なべHub", "家の外で実行してください")
+                return
+            end
+
+            local originalPos = hrp.CFrame
+            local originalSpeed = hum.WalkSpeed
+            hum.WalkSpeed = 0
+
+            -- オカリナを特定座標にスポーン
+            pcall(function()
+                SpawnToyRemoteFunction:InvokeServer("InstrumentWoodwindOcarina",
+                    CFrame.new(184.148834, -5.54824972, 498.136749), Vector3.new(0, 34, 0))
+            end)
+            task.wait(0.4)
+
+            local toys = getMyToys()
+            local ocarina = toys and toys:FindFirstChild("InstrumentWoodwindOcarina")
+            if ocarina and ocarina:FindFirstChild("HoldPart") then
+                pcall(function()
+                    ocarina.HoldPart.HoldItemRemoteFunction:InvokeServer(ocarina, LocalPlayer.Character)
+                end)
+                hrp.CFrame = CFrame.new(304.06, 25.77, 488.54)
+                task.wait(0.21)
+                pcall(function() DestroyToy:FireServer(ocarina) end)
+                hrp.CFrame = originalPos
+                task.wait(0.7)
+                pcall(function()
+                    SpawnToyRemoteFunction:InvokeServer("Campfire",
+                        CFrame.new(257.638672, -5.57392979, 450.103638), Vector3.new(0, 161.972))
+                end)
+                hum.WalkSpeed = originalSpeed
+                notif("なべHub", "バリア破壊実行")
+            end
+        end)
+    end
+})
+
+-- 家の時間維持
+local houseTimeThread = nil
+UtilityTab:AddToggle({
+    Name = "家の時間維持",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.PreserveHouse = v
+        if not v then
+            if houseTimeThread then task.cancel(houseTimeThread) houseTimeThread = nil end
+            return
+        end
+        houseTimeThread = task.spawn(function()
+            while NabeHub.State.PreserveHouse do
+                local plotArea = nil
+                for _, plot in ipairs(Workspace.Plots:GetChildren()) do
+                    local sign = plot:FindFirstChild("PlotSign")
+                    local owners = sign and sign:FindFirstChild("ThisPlotsOwners")
+                    if owners then
+                        for _, o in ipairs(owners:GetChildren()) do
+                            if o.Value == LocalPlayer.Name and o:FindFirstChild("TimeRemainingNum") then
+                                if o.TimeRemainingNum.Value < 20 then
+                                    local area = plot:FindFirstChild("PlotArea")
+                                    local hrp = getHRP()
+                                    if area and hrp then
+                                        hrp.CFrame = CFrame.new(area.Position)
+                                        task.wait(0.2)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                task.wait(2)
+            end
+        end)
+        notif("なべHub", "家の時間維持 ON")
+    end
+})
+
+-- スロット自動回転
+local slotThread = nil
+UtilityTab:AddToggle({
+    Name = "スロット自動回転",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.AutoSpinSlot = v
+        if not v then
+            if slotThread then task.cancel(slotThread) slotThread = nil end
+            return
+        end
+        slotThread = task.spawn(function()
+            while NabeHub.State.AutoSpinSlot do
+                local hrp = getHRP()
+                if hrp then
+                    for _, slot in ipairs(Workspace:FindFirstChild("Slots"):GetChildren()) do
+                        local handle = slot:FindFirstChild("SlotHandle") and slot.SlotHandle:FindFirstChild("Handle")
+                        if handle then
+                            pcall(function() SetNetworkOwner:FireServer(handle, handle.CFrame) end)
+                        end
+                    end
+                end
+                task.wait(1)
+            end
+        end)
+        notif("なべHub", "スロット自動回転 ON")
+    end
+})
+
+-- ==========================================
+-- アンカーオブジェクト
+-- ==========================================
+UtilityTab:AddSection({ Name = "アンカー" })
+
+local anchorConn = nil
+UtilityTab:AddToggle({
+    Name = "アンカーオブジェクト（G）",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.Anchor = v
+        if anchorConn then anchorConn:Disconnect() anchorConn = nil end
+        if v then
+            anchorConn = UserInputService.InputBegan:Connect(function(input, gp)
+                if gp then return end
+                if input.KeyCode ~= Enum.KeyCode.G then return end
+                local grabParts = Workspace:FindFirstChild("GrabParts")
+                if not grabParts then return end
+                local grabPart = grabParts:FindFirstChild("GrabPart")
+                if not grabPart then return end
+                local weld = grabPart:FindFirstChild("WeldConstraint") or grabPart:FindFirstChild("Weld")
+                local part1 = weld and weld.Part1
+                if not part1 then return end
+                local parent = part1.Parent
+                if parent and parent:IsA("Model") and not parent:GetAttribute("NabeAnchored") then
+                    local bp = Instance.new("BodyPosition")
+                    bp.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    bp.P = 40000
+                    bp.D = 950
+                    bp.Position = part1.Position
+                    bp.Parent = part1
+                    local bg = Instance.new("BodyGyro")
+                    bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+                    bg.P = 40000
+                    bg.D = 950
+                    bg.CFrame = part1.CFrame
+                    bg.Parent = part1
+                    parent:SetAttribute("NabeAnchored", true)
+                    local hl = Instance.new("Highlight")
+                    hl.FillColor = Color3.fromRGB(0, 100, 255)
+                    hl.OutlineColor = Color3.fromRGB(0, 200, 255)
+                    hl.FillTransparency = 0.7
+                    hl.Adornee = parent
+                    hl.Parent = parent
+                    notif("なべHub", parent.Name .. " をアンカー化")
+                elseif parent and parent:GetAttribute("NabeAnchored") then
+                    for _, p in ipairs(parent:GetDescendants()) do
+                        if p:IsA("BodyPosition") or p:IsA("BodyGyro") then p:Destroy() end
+                        if p:IsA("Highlight") then p:Destroy() end
+                    end
+                    parent:SetAttribute("NabeAnchored", nil)
+                    notif("なべHub", "アンカー解除")
+                end
+            end)
+            notif("なべHub", "アンカーオブジェクト ON (G)")
+        end
+    end
+})
+
+-- ブロブマン自動スポーン
+UtilityTab:AddSection({ Name = "ブロブマン" })
+
+UtilityTab:AddToggle({
+    Name = "ブロブマン自動スポーン",
+    Default = false,
+    Callback = function(v)
+        NabeHub.State.AutoBlobman = v
+        if not v then return end
+        task.spawn(function()
+            while NabeHub.State.AutoBlobman do
+                local hum = getHum()
+                if hum and not hum.SeatPart then
+                    ensureBlobman()
+                end
+                task.wait(1)
+            end
+        end)
+        notif("なべHub", "ブロブマン自動スポーン ON")
+    end
+})
+
+-- ==========================================
+-- 設定タブ
+-- ==========================================
+local SettingsTab = Window:MakeTab({
+    Name = "設定",
+    Icon = "rbxassetid://4483362458",
+})
+
+SettingsTab:AddSection({ Name = "情報" })
+
+SettingsTab:AddLabel("なべHub v1.0")
+SettingsTab:AddLabel("The Survival Game (物人) 専用")
+SettingsTab:AddLabel("Base: Orion Lib (jadpy/suki)")
+
+SettingsTab:AddSection({ Name = "通知" })
+
+local notifyEnabled = true
+SettingsTab:AddToggle({
+    Name = "通知有効",
+    Default = true,
+    Callback = function(v)
+        notifyEnabled = v
+    end
+})
+
+SettingsTab:AddSection({ Name = "全停止" })
+
+SettingsTab:AddButton({
+    Name = "全機能停止",
+    Callback = function()
+        for k, _ in pairs(NabeHub.State) do
+            if type(NabeHub.State[k]) == "boolean" then
+                NabeHub.State[k] = false
+            end
+        end
+        clearRainbowESP()
+        clearCustomEffect()
+        for _, conn in ipairs(NabeHub.Connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        NabeHub.Connections = {}
+        notif("なべHub", "全機能停止")
+    end
+})
+
+SettingsTab:AddButton({
+    Name = "UI アンロード",
+    Callback = function()
+        for k, _ in pairs(NabeHub.State) do
+            if type(NabeHub.State[k]) == "boolean" then
+                NabeHub.State[k] = false
+            end
+        end
+        clearRainbowESP()
+        clearCustomEffect()
+        for _, conn in ipairs(NabeHub.Connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        NabeHub.Connections = {}
+        OrionLib:Destroy()
+    end
+})
+
+-- ==========================================
+-- 完了通知
+-- ==========================================
+OrionLib:Init()
+
+notif("なべHub", "起動完了。攻撃・防御・掴み・移動・視覚・便利の6タブ。")
+
+print("[なべHub] loaded")
