@@ -496,7 +496,7 @@ end
     local Window = OrionLib:MakeWindow({
         Name = "NoName", 
         HidePremium = false, 
-        SaveConfig = true, 
+        SaveConfig = false, 
         ConfigFolder = "NNhub", 
         IntroEnabled = true, 
         IntroText = "NNhub",
